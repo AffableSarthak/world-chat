@@ -1,12 +1,82 @@
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>World chat</title>
 </head>
+
 <body>
     <h1>
-        WORLD CHAT 
-    </h1>   
+        WORLD CHAT
+    </h1>
+
+
+    <textarea name="editor" id="editor" cols="30" rows="10" onchange="handleTextareaChange()"></textarea>
+
+    <p id="metadata"></p>
 </body>
+
+<script>
+    const conn = new WebSocket("ws://localhost:8080/ws")
+
+    // Handle error while connecting 
+    conn.onerror = (e) => {
+        console.log(`ERROR: ${e.data}`);
+    };
+
+    //     conn.onopen = (event) => {
+    // const messageJson = {
+    //     roomId: "1",
+    //     roomName: "chat",
+    //     message:"Hello"
+    // }
+    //   conn.send(JSON.stringify(messageJson));
+    // };
+
+    const clearEditorAndMetadata = () => {
+        const editor = document.getElementById("editor")
+        const metaData = document.getElementById("metadata")
+
+        editor.innerHTML = ""
+        metaData.innerHTML = ""
+    }
+
+    conn.onmessage = () => {
+        console.log(JSON.parse(event.data), "message on ws connection");
+
+        const webSocketData = JSON.parse(event.data)
+        // Update the text area and the metadata
+        const editor = document.getElementById("editor")
+        const metaData = document.getElementById("metadata")
+
+        clearEditorAndMetadata()
+        editor.innerHTML = `${webSocketData.message} niceee`
+        metaData.innerHTML = `vague and confusing ${webSocketData.roomId} ${webSocketData.roomName}`
+    };
+
+    conn.onclose = () => {
+        console.log(event.data, "connection closed")
+        const webSocketData = event.data
+        const editor = document.getElementById("editor")
+        const metaData = document.getElementById("metadata")
+        // Show connection closed and clear the text area 
+        clearEditorAndMetadata()
+        metaData.innerText = "connection closed"
+    }
+
+    function handleTextareaChange() {
+        var textareaValue = document.getElementById("editor").value;
+        var message = "Textarea content changed: " + textareaValue;
+        console.log(message);
+
+        conn.send(JSON.stringify({
+            roomId: "1",
+            roomName: "text editor",
+            message: message
+        }))
+        // You can perform any other actions you need here
+    }
+</script>
+
 </html>
