@@ -11,9 +11,12 @@ import (
 // World chat is public chat forum, go to (worldchat.com/any-forum-name), anyone can join and start chatting.
 func main() {
 
+	room := newRoom()
 	// Serve the frontend for the application
 	http.HandleFunc("GET /", serveFrontend)
-	http.HandleFunc("GET /ws", newWsConn)
+	http.HandleFunc("GET /ws", func(w http.ResponseWriter, r *http.Request) {
+		newWsConn(room, w, r)
+	})
 
 	// Listen and serve
 	log.Println("Server started, go to link http://localhost:8080")
@@ -21,6 +24,15 @@ func main() {
 
 	if err != nil {
 		log.Fatal("Error listening and serving: ", err)
+	}
+}
+
+func newRoom() *room {
+	return &room{
+		Clients:    make(map[*client]bool),
+		Unregister: make(chan *client),
+		Register:   make(chan *client),
+		Broadcast:  make(chan []byte),
 	}
 }
 
@@ -36,15 +48,30 @@ var upgrade = websocket.Upgrader{
 
 type (
 	worldChatJson struct {
-		RoomID   string `json:"roomId"`
-		RoomName string `json:"roomName"`
-		Message  string `json:"message"`
+		RoomID       string `json:"roomId"`
+		RoomName     string `json:"roomName"`
+		Message      string `json:"message"`
+		UserIdentity string `json:"userIdentification"`
+	}
+
+	client struct {
+		Conn *websocket.Conn
+		Room *room
+		Send chan []byte // channel for each client to write onto the websocket write buffer
+	}
+
+	room struct {
+		Clients    map[*client]bool
+		Register   chan *client
+		Unregister chan *client
+		Broadcast  chan []byte
 	}
 )
 
-func newWsConn(w http.ResponseWriter, r *http.Request) {
+func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrade.Upgrade(w, r, nil)
 
+	_ = room
 	// Error upgrading the connection to a web socket
 	if err != nil {
 		log.Println(err)
@@ -53,6 +80,16 @@ func newWsConn(w http.ResponseWriter, r *http.Request) {
 
 	defer conn.Close()
 	// conn is now ws connection
+
+	// Create client
+	client := &client{
+		Room: room,
+		Conn: conn,
+		Send: make(chan []byte, 256),
+	}
+
+	// Register the client to a room
+	client.Room.Register <- client
 
 	// Single Client Architecture, read and write to the client
 	for {
@@ -82,9 +119,3 @@ func newWsConn(w http.ResponseWriter, r *http.Request) {
 	}
 
 }
-
-// go func (){
-// 	for {
-// 		conn.ReadJSON()
-// 	}
-// }

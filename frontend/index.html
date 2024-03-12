@@ -10,14 +10,12 @@
     <h1>
         WORLD CHAT
     </h1>
-
-
     <textarea name="editor" id="editor" cols="30" rows="10" onchange="handleTextareaChange()"></textarea>
-
     <p id="metadata"></p>
 </body>
 
 <script>
+
     const conn = new WebSocket("ws://localhost:8080/ws")
 
     // Handle error while connecting 
@@ -25,50 +23,60 @@
         console.log(`ERROR: ${e.data}`);
     };
 
-    //     conn.onopen = (event) => {
-    // const messageJson = {
-    //     roomId: "1",
-    //     roomName: "chat",
-    //     message:"Hello"
-    // }
-    //   conn.send(JSON.stringify(messageJson));
-    // };
+    // Assume the client is joining text editor 
+    // TODO: Make the selection of room dynamic, join existing rooms or create new rooms
+    conn.onopen = (event) => {
+        const messageJson = {
+            roomId: "1",
+            roomName: "text editor",
+            message: "",
+            userIdentification: window.crypto.randomUUID()
+        }
+        conn.send(JSON.stringify(messageJson));
+    };
 
+    // As the function name suggests
     const clearEditorAndMetadata = () => {
         const editor = document.getElementById("editor")
         const metaData = document.getElementById("metadata")
 
-        editor.innerHTML = ""
+        editor.value = ""
         metaData.innerHTML = ""
     }
 
     conn.onmessage = () => {
-        console.log(JSON.parse(event.data), "message on ws connection");
-
+        // Get the values from the websocket connection
         const webSocketData = JSON.parse(event.data)
+        const { roomId, roomName, message, userIdentification } = webSocketData
+
         // Update the text area and the metadata
         const editor = document.getElementById("editor")
         const metaData = document.getElementById("metadata")
 
+        // Clear the textarea and metadata
         clearEditorAndMetadata()
-        editor.innerHTML = `${webSocketData.message} niceee`
-        metaData.innerHTML = `vague and confusing ${webSocketData.roomId} ${webSocketData.roomName}`
+
+        // Update the textarea whenever any new change is broadcasted on the websocket connection 
+        // And metadata from the who the new change is from 
+        editor.value = message
+        metaData.innerHTML = `RoomID:${webSocketData.roomId} \n RoomName:${webSocketData.roomName} userIdentification:${userIdentification}`
     };
 
     conn.onclose = () => {
-        console.log(event.data, "connection closed")
         const webSocketData = event.data
+
         const editor = document.getElementById("editor")
         const metaData = document.getElementById("metadata")
+
         // Show connection closed and clear the text area 
         clearEditorAndMetadata()
+        editor.value = "connection closed"
         metaData.innerText = "connection closed"
     }
 
     function handleTextareaChange() {
         var textareaValue = document.getElementById("editor").value;
-        var message = "Textarea content changed: " + textareaValue;
-        console.log(message);
+        var message = textareaValue;
 
         conn.send(JSON.stringify({
             roomId: "1",
