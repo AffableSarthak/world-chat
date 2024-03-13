@@ -11,9 +11,11 @@ import (
 // World chat is public chat forum, go to (worldchat.com/any-forum-name), anyone can join and start chatting.
 func main() {
 
-	room := newRoom()
 	// Serve the frontend for the application
 	http.HandleFunc("GET /", serveFrontend)
+
+	// Web socket connection
+	room := newRoom()
 	http.HandleFunc("GET /ws", func(w http.ResponseWriter, r *http.Request) {
 		newWsConn(room, w, r)
 	})
@@ -68,19 +70,44 @@ type (
 	}
 )
 
+func (room *room) run() {
+	for {
+		select {
+		case client := <-room.Register:
+			room.Clients[client] = true
+			fmt.Println(room.Clients)
+		case client := <-room.Unregister:
+			if _, ok := room.Clients[client]; ok {
+				delete(room.Clients, client)
+				close(client.Send)
+			}
+			fmt.Println(room.Clients)
+		case message := <-room.Broadcast:
+			for client := range room.Clients {
+				select {
+				case client.Send <- message:
+				default:
+					close(client.Send)
+					delete(room.Clients, client)
+				}
+			}
+		}
+	}
+}
+
 func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrade.Upgrade(w, r, nil)
-
-	_ = room
+	room.run()
 	// Error upgrading the connection to a web socket
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
+	// Close the conn when
 	defer conn.Close()
-	// conn is now ws connection
 
+	// conn is now ws connection
 	// Create client
 	client := &client{
 		Room: room,
@@ -91,31 +118,41 @@ func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	// Register the client to a room
 	client.Room.Register <- client
 
-	// Single Client Architecture, read and write to the client
-	for {
-		// Read message from the client (JSON)
-		var wsJson worldChatJson
-		err = conn.ReadJSON(&wsJson)
+	// Create go func, concurrent functions for both reading and writing into the ws conn
 
-		if err != nil {
-			// log.Println("Some error in reading the message from the frontend", err)
-
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
-			}
-			return
-		}
-
-		// DO something with wsJson object
-		fmt.Println(wsJson)
-
-		// Wrtie Message to the client
-		err = conn.WriteJSON(wsJson)
-		if err != nil {
-			// Error writing to the client
-			log.Println(err)
-			return
-		}
-	}
-
+	// Reading
+	// go func() {
+	// 	for {
+	// 		select {
+	// 			case
+	// 		}
+	// 	}
+	// }
 }
+
+// // Single Client Architecture, read and write to the client
+// for {
+// 	// Read message from the client (JSON)
+// 	var wsJson worldChatJson
+// 	err = conn.ReadJSON(&wsJson)
+
+// 	if err != nil {
+// 		// log.Println("Some error in reading the message from the frontend", err)
+
+// 		if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+// 			log.Printf("error: %v", err)
+// 		}
+// 		return
+// 	}
+
+// 	// DO something with wsJson object
+// 	fmt.Println(wsJson)
+
+// 	// Wrtie Message to the client
+// 	err = conn.WriteJSON(wsJson)
+// 	if err != nil {
+// 		// Error writing to the client
+// 		log.Println(err)
+// 		return
+// 	}
+// }
