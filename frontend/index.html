@@ -16,7 +16,11 @@
 
 <script>
 
-    const conn = new WebSocket("ws://localhost:8080/ws")
+    // Get this from setLocalhost (TODO)
+    // Basically from the hompage, click on a public text-editor, login your username
+    // Five basic text-editor only (at first)
+    let roomId = "1", roomName = "world", clientID = window.crypto.randomUUID()
+    const conn = new WebSocket(`ws://localhost:8080/ws?roomID=${roomId}&roomName=${roomName}&clientID=${clientID}`)
 
     // Handle error while connecting 
     conn.onerror = (e) => {
@@ -26,13 +30,7 @@
     // Assume the client is joining text editor 
     // TODO: Make the selection of room dynamic, join existing rooms or create new rooms
     conn.onopen = (event) => {
-        const messageJson = {
-            roomId: "1",
-            roomName: "text editor",
-            message: "",
-            userIdentification: window.crypto.randomUUID()
-        }
-        conn.send(JSON.stringify(messageJson));
+        conn.send("Testing the connection");
     };
 
     // As the function name suggests
@@ -47,7 +45,7 @@
     conn.onmessage = () => {
         // Get the values from the websocket connection
         const webSocketData = JSON.parse(event.data)
-        const { roomId, roomName, message, userIdentification } = webSocketData
+        // const { roomId, roomName, message, userIdentification } = webSocketData
 
         // Update the text area and the metadata
         const editor = document.getElementById("editor")
@@ -58,8 +56,8 @@
 
         // Update the textarea whenever any new change is broadcasted on the websocket connection 
         // And metadata from the who the new change is from 
-        editor.value = message
-        metaData.innerHTML = `RoomID:${webSocketData.roomId} \n RoomName:${webSocketData.roomName} userIdentification:${userIdentification}`
+        // editor.value = message
+        // metaData.innerHTML = `RoomID:${webSocketData.roomId} \n RoomName:${webSocketData.roomName} userIdentification:${userIdentification}`
     };
 
     conn.onclose = () => {
@@ -79,8 +77,8 @@
         var message = textareaValue;
 
         conn.send(JSON.stringify({
-            roomId: "1",
-            roomName: "text editor",
+            // roomId: "1",
+            // roomName: "text editor",
             message: message
         }))
         // You can perform any other actions you need here

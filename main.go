@@ -31,7 +31,7 @@ func main() {
 
 func newRoom() *room {
 	return &room{
-		Clients:    make(map[*client]bool),
+		Clients:    make(map[*client]roomInfo),
 		Unregister: make(chan *client),
 		Register:   make(chan *client),
 		Broadcast:  make(chan []byte),
@@ -49,32 +49,38 @@ var upgrade = websocket.Upgrader{
 }
 
 type (
-	worldChatJson struct {
-		RoomID       string `json:"roomId"`
-		RoomName     string `json:"roomName"`
-		Message      string `json:"message"`
-		UserIdentity string `json:"userIdentification"`
-	}
-
 	client struct {
 		Conn *websocket.Conn
 		Room *room
 		Send chan []byte // channel for each client to write onto the websocket write buffer
 	}
 
+	roomInfo struct {
+		isActive bool
+		clientID string
+		roomId   string
+		roomName string
+	}
 	room struct {
-		Clients    map[*client]bool
+		Clients    map[*client]roomInfo
 		Register   chan *client
 		Unregister chan *client
 		Broadcast  chan []byte
 	}
 )
 
-func (room *room) run() {
+func (room *room) run(roomId, roomName, clientId string) {
+	fmt.Println("INSIDE THE ROOOM:", roomName)
 	for {
 		select {
 		case client := <-room.Register:
-			room.Clients[client] = true
+			room.Clients[client] = roomInfo{
+				isActive: true,
+				clientID: clientId,
+				roomId:   roomId,
+				roomName: roomName,
+			}
+
 			fmt.Println(room.Clients)
 		case client := <-room.Unregister:
 			if _, ok := room.Clients[client]; ok {
@@ -91,13 +97,29 @@ func (room *room) run() {
 					delete(room.Clients, client)
 				}
 			}
+		default:
+			fmt.Println("THERE WAS NOTHING TO BLOCK")
 		}
+
 	}
 }
 
 func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrade.Upgrade(w, r, nil)
-	room.run()
+
+	// Get the room information for the connection
+	// roomID := r.FormValue("roomID")
+	// roomName := r.FormValue("roomName")
+	// clientID := r.Form.Get("clientID")
+	lul := r.URL.Query()
+	var roomID string = r.URL.Query().Get("roomID")
+	var roomName string = r.URL.Query().Get("roomName")
+	var clientID string = lul.Get("clientID")
+	// fmt.Println("ROOM_INFO:", roomID, roomName, clientID)
+
+	// Instantiate all room related fuctionality
+	room.run(roomID, roomName, clientID)
+
 	// Error upgrading the connection to a web socket
 	if err != nil {
 		log.Println(err)
@@ -121,21 +143,49 @@ func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	// Create go func, concurrent functions for both reading and writing into the ws conn
 
 	// Reading
-	// go func() {
-	// 	for {
-	// 		select {
-	// 			case
-	// 		}
-	// 	}
-	// }
+	go client.readData()
+	// Writing
+	go client.writeData()
+}
+
+func (c *client) readData() {
+	defer func() {
+		c.Room.Unregister <- c
+		c.Conn.Close()
+	}()
+	for {
+		fmt.Println("INSIDE READ PUMP for CLIENT", c.Room.Clients[c].clientID)
+		_, message, err := c.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("error: %v", err)
+			}
+			return
+		}
+		fmt.Println("MESSAGE FROM CLIENT:", c.Room.Clients[c].clientID, ",", message)
+		c.Room.Broadcast <- message
+
+		fmt.Println(c.Room.Broadcast)
+	}
+}
+
+func (c *client) writeData() {
+	for {
+		// c.Conn.WriteMessage(websocket.TextMessage, <-c.Send)
+
+		select {
+		case message := <-c.Send:
+			c.Conn.WriteMessage(websocket.TextMessage, message)
+		}
+	}
 }
 
 // // Single Client Architecture, read and write to the client
 // for {
 // 	// Read message from the client (JSON)
-// 	var wsJson worldChatJson
-// 	err = conn.ReadJSON(&wsJson)
 
+// var wsJson worldChatJson
+// err = conn.ReadJSON(&wsJson)
 // 	if err != nil {
 // 		// log.Println("Some error in reading the message from the frontend", err)
 
