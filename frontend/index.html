@@ -20,7 +20,7 @@
     // Basically from the hompage, click on a public text-editor, login your username
     // Five basic text-editor only (at first)
     let roomId = "1", roomName = "world", clientID = window.crypto.randomUUID()
-    const conn = new WebSocket(`ws://localhost:8080/ws?roomID=${roomId}&roomName=${roomName}&clientID=${clientID}`)
+    const conn = new WebSocket(`ws://localhost:8090/ws?roomID=${roomId}&roomName=${roomName}&clientID=${clientID}`)
 
     // Handle error while connecting 
     conn.onerror = (e) => {

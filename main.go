@@ -8,46 +8,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// World chat is public chat forum, go to (worldchat.com/any-forum-name), anyone can join and start chatting.
-func main() {
-
-	// Serve the frontend for the application
-	http.HandleFunc("GET /", serveFrontend)
-
-	// Web socket connection
-	room := newRoom()
-	http.HandleFunc("GET /ws", func(w http.ResponseWriter, r *http.Request) {
-		newWsConn(room, w, r)
-	})
-
-	// Listen and serve
-	log.Println("Server started, go to link http://localhost:8080")
-	err := http.ListenAndServe(":8080", nil)
-
-	if err != nil {
-		log.Fatal("Error listening and serving: ", err)
-	}
-}
-
-func newRoom() *room {
-	return &room{
-		Clients:    make(map[*client]roomInfo),
-		Unregister: make(chan *client),
-		Register:   make(chan *client),
-		Broadcast:  make(chan []byte),
-	}
-}
-
-func serveFrontend(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "./frontend")
-}
-
-// WS connection properties
-var upgrade = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
-
 type (
 	client struct {
 		Conn *websocket.Conn
@@ -69,53 +29,55 @@ type (
 	}
 )
 
-func (room *room) run(roomId, roomName, clientId string) {
-	fmt.Println("INSIDE THE ROOOM:", roomName)
-	for {
-		select {
-		case client := <-room.Register:
-			room.Clients[client] = roomInfo{
-				isActive: true,
-				clientID: clientId,
-				roomId:   roomId,
-				roomName: roomName,
-			}
+// World chat is public chat forum, go to (worldchat.com/any-forum-name), anyone can join and start chatting.
+func main() {
 
-			fmt.Println(room.Clients)
-		case client := <-room.Unregister:
-			if _, ok := room.Clients[client]; ok {
-				delete(room.Clients, client)
-				close(client.Send)
-			}
-			fmt.Println(room.Clients)
-		case message := <-room.Broadcast:
-			for client := range room.Clients {
-				select {
-				case client.Send <- message:
-				default:
-					close(client.Send)
-					delete(room.Clients, client)
-				}
-			}
-		default:
-			fmt.Println("THERE WAS NOTHING TO BLOCK")
-		}
+	// Serve the frontend for the application
+	http.HandleFunc("GET /", serveFrontend)
 
+	// Web socket connection
+	room := newRoom()
+	http.HandleFunc("GET /ws", func(w http.ResponseWriter, r *http.Request) {
+		newWsConn(room, w, r)
+	})
+
+	// Listen and serve
+	log.Println("Server started, go to link http://localhost:8090")
+	err := http.ListenAndServe(":8090", nil)
+
+	if err != nil {
+		log.Fatal("Error listening and serving: ", err)
 	}
+}
+
+// Serve the web app
+func serveFrontend(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./frontend")
+}
+
+// Create a Room, basically each client is part of a room
+func newRoom() *room {
+	return &room{
+		Clients:    make(map[*client]roomInfo),
+		Unregister: make(chan *client),
+		Register:   make(chan *client),
+		Broadcast:  make(chan []byte),
+	}
+}
+
+// WS connection properties
+var upgrade = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
 }
 
 func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrade.Upgrade(w, r, nil)
 
-	// Get the room information for the connection
-	// roomID := r.FormValue("roomID")
-	// roomName := r.FormValue("roomName")
-	// clientID := r.Form.Get("clientID")
 	lul := r.URL.Query()
 	var roomID string = r.URL.Query().Get("roomID")
 	var roomName string = r.URL.Query().Get("roomName")
 	var clientID string = lul.Get("clientID")
-	// fmt.Println("ROOM_INFO:", roomID, roomName, clientID)
 
 	// Instantiate all room related fuctionality
 	room.run(roomID, roomName, clientID)
@@ -141,11 +103,39 @@ func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	client.Room.Register <- client
 
 	// Create go func, concurrent functions for both reading and writing into the ws conn
-
 	// Reading
 	go client.readData()
 	// Writing
 	go client.writeData()
+}
+
+func (room *room) run(roomId, roomName, clientId string) {
+	fmt.Println("INSIDE THE ROOOM:", roomName)
+	for {
+		select {
+		case client := <-room.Register:
+			room.Clients[client] = roomInfo{
+				isActive: true,
+				clientID: clientId,
+				roomId:   roomId,
+				roomName: roomName,
+			}
+		case client := <-room.Unregister:
+			if _, ok := room.Clients[client]; ok {
+				delete(room.Clients, client)
+				close(client.Send)
+			}
+		case message := <-room.Broadcast:
+			for client := range room.Clients {
+				select {
+				case client.Send <- message:
+				default:
+					close(client.Send)
+					delete(room.Clients, client)
+				}
+			}
+		}
+	}
 }
 
 func (c *client) readData() {
@@ -154,7 +144,6 @@ func (c *client) readData() {
 		c.Conn.Close()
 	}()
 	for {
-		fmt.Println("INSIDE READ PUMP for CLIENT", c.Room.Clients[c].clientID)
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -162,19 +151,18 @@ func (c *client) readData() {
 			}
 			return
 		}
-		fmt.Println("MESSAGE FROM CLIENT:", c.Room.Clients[c].clientID, ",", message)
+		msg := <-c.Room.Broadcast
+		fmt.Println("MSG:", msg)
 		c.Room.Broadcast <- message
-
-		fmt.Println(c.Room.Broadcast)
 	}
 }
 
 func (c *client) writeData() {
 	for {
 		// c.Conn.WriteMessage(websocket.TextMessage, <-c.Send)
-
 		select {
 		case message := <-c.Send:
+
 			c.Conn.WriteMessage(websocket.TextMessage, message)
 		}
 	}
