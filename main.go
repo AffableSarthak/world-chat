@@ -80,7 +80,7 @@ func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	var clientID string = lul.Get("clientID")
 
 	// Instantiate all room related fuctionality
-	room.run(roomID, roomName, clientID)
+	go room.run(roomID, roomName, clientID)
 
 	// Error upgrading the connection to a web socket
 	if err != nil {
@@ -89,8 +89,10 @@ func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Close the conn when
-	defer conn.Close()
-
+	// defer func() {
+	// 	fmt.Println("NO MUTEX, CLOSING ASAP lol")
+	// 	conn.Close()
+	// }()
 	// conn is now ws connection
 	// Create client
 	client := &client{
@@ -100,6 +102,7 @@ func newWsConn(room *room, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register the client to a room
+	fmt.Println("TRYING TO REGISTER THE CLIENT")
 	client.Room.Register <- client
 
 	// Create go func, concurrent functions for both reading and writing into the ws conn
@@ -120,13 +123,17 @@ func (room *room) run(roomId, roomName, clientId string) {
 				roomId:   roomId,
 				roomName: roomName,
 			}
+			fmt.Println("CLIENT REGISTERED", room.Clients[client])
+
 		case client := <-room.Unregister:
 			if _, ok := room.Clients[client]; ok {
 				delete(room.Clients, client)
 				close(client.Send)
 			}
 		case message := <-room.Broadcast:
+			fmt.Println("MESSAGE", message)
 			for client := range room.Clients {
+
 				select {
 				case client.Send <- message:
 				default:
@@ -139,32 +146,45 @@ func (room *room) run(roomId, roomName, clientId string) {
 }
 
 func (c *client) readData() {
-	defer func() {
-		c.Room.Unregister <- c
-		c.Conn.Close()
-	}()
+	// defer func() {
+	// 	fmt.Println("DOES IT COME HERE <- readData()")
+	// 	c.Room.Unregister <- c
+	// 	c.Conn.Close()
+	// }()
 	for {
 		_, message, err := c.Conn.ReadMessage()
+		fmt.Println(message, "MESSAGE FROM CLIENT")
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
 			}
 			return
 		}
-		msg := <-c.Room.Broadcast
-		fmt.Println("MSG:", msg)
-		c.Room.Broadcast <- message
+		select {
+		case msg := <-c.Room.Broadcast:
+			// if len(msg) == 0 {
+			// 	return
+			// }
+			fmt.Println("MSG:", msg)
+			c.Room.Broadcast <- message
+		}
 	}
 }
 
 func (c *client) writeData() {
+	// defer func() {
+	// 	fmt.Println("DOES IT COME HERE <- writeData()")
+	// }()
 	for {
 		// c.Conn.WriteMessage(websocket.TextMessage, <-c.Send)
-		select {
-		case message := <-c.Send:
+		msg := <-c.Send
+		fmt.Println("MSG:", msg)
+		c.Conn.WriteMessage(websocket.TextMessage, msg)
+		// select {
+		// case message := <-c.Send:
 
-			c.Conn.WriteMessage(websocket.TextMessage, message)
-		}
+		// 	c.Conn.WriteMessage(websocket.TextMessage, message)
+		// }
 	}
 }
 
